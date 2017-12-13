@@ -7,7 +7,7 @@ flagmv2='correcto'
 
 unset SSH_AUTH_SOCK
 unset KRB5CCNAME
-ç
+
 echo 'Configurando la red...'
 ip l add br0 type bridge
 ip a add 192.168.122.3/24 dev br0
