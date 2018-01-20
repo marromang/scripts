@@ -1,63 +1,59 @@
 #!/bin/bash
-
-# how to ckeck connection
-#until fping $IP &>/dev/null
-#do 
-#	echo "No hay ping" 
-#done
-
-# check free mem
-# lxc-info -n name -S | grep Memory | tr -f " " | cut -d " " -f 3 | cut -d "." -f 1
-
+#vars
 check_mem_1='OK'
 check_mem_2='OK'
+
 # cont status
 cont1_status=$(lxc-info -n cont1 -sH)
-echo $cont1_status
+
 # if not running, start and add aditional disk
 if [[ $cont_status != "RUNNING" ]];
 then
-	
+	 # start cont1
 	lxc-start -n cont1
+
+	# check cont1 status
 	cont1_status=$(lxc-info -n cont1 -sH)
-	echo $cont1_status
 
 	until  [[ $cont1_status == "RUNNING" ]]
 		do
-			echo "Up"
+			echo "Initializing cont1"
 		done
-	echo $cont1_status
 
-
-	echo "adding device"
+	#attach the additional disk
+	echo "Adding volume to cont1"
 	lxc-device -n cont1 add /dev/lxc/additional
-	echo "1"
+
+	echo "Mounting"
 	lxc-attach -n cont1 -- mount /dev/lxc/additional /var/www/html
-	echo "2"
-	lxc-attach -n cont1 -- systemctl restart apache2
-
-	echo "3"
-	lxc-cgroup -n cont1 memory.limit_in_bytes 512M
-
-else
-	lxc-cgroup -n cont1 memory.limit_in_bytes 512M
-	cont1_IP=$(lxc-info -n cont1 -iH)
+	echo "Mounted"
 fi
 
-#once the container is running, we add iptables rules so the web server can be seen from another host
-cont1_IP=$(lxc-info -n cont1 -iH)
-echo $cont1_IP
+# once the container is running, we add iptables rules so the web server can be seen from another host
+# limit ram
+echo "Limiting ram"
+lxc-cgroup -n cont1 memory.limit_in_bytes 512M
 
-sleep 5
+# get ip
+until [[ -n "${cont1_IP}" ]] 
+		do
+			echo "Getting cont1 IP"
+			sleep 1
+			cont1_IP=$(lxc-info -n cont1 -iH)
+		done
 
+echo "iptables cont2"
 iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $cont1_IP:80
 
-echo "check website"
+echo "Restarting apache"
+lxc-attach -n cont1 -- systemctl restart apache2
+
+echo "You can now check the website"
+
 # once is up and running, check memory
 while [[ $check_mem_1 == "OK" ]];
 do
 	cont1_mem=$(lxc-info -n cont1 -S | grep Memory | tr -s " " | cut -d " " -f 3 | cut -d "." -f 1)
-	
 	
 	# if free memory is greater than 500, start migration
 	if 	[[ $cont1_mem -ge '500' ]];
@@ -65,41 +61,52 @@ do
 		check_mem_1='NOT OK'
 		
 		# cont1 down
-		echo "attach1 1"
+		echo "Stopping cont1"
+		lxc-stop -n cont1
+		
 		# umount disk
 		# lxc-attach -n cont1 -- umount /dev/lxc/additional /var/www/html
 		
-		lxc-stop -n cont1
 		# cont2 up
-		echo "starting cont2"
+		echo "Starting cont2"
 		lxc-start -n cont2
 		
 		cont2_status=$(lxc-info -n cont2 -sH)
 
-		# check cont2 conn
+		# check cont2 status
 		until  [[ $cont2_status == "RUNNING" ]]
 		do
-			echo "Up"
+			echo "Initializing cont2"
 		done
 
-		# if there's connection, proceed
+		# whene there's connection, proceed
 			# add disk
-			lxc-cgroup -n cont2 memory.limit_in_bytes 1024M
-			lxc-device -n cont2 add /dev/lxc/additional
-			lxc-attach -n cont2 -- mount /dev/lxc/additional /var/www/html
-			
-			# reload apache
-			lxc-attach -n cont2 -- systemctl restart apache2
-			
-			cont2_IP=$(lxc-info -n cont2 -iH)
-			echo $cont2_IP
+		lxc-cgroup -n cont2 memory.limit_in_bytes 1024M
+		lxc-device -n cont2 add /dev/lxc/additional
+		lxc-attach -n cont2 -- mount /dev/lxc/additional /var/www/html
+		
+		#get ip
 
-			sleep 5 
-			# iptables
-			iptables -t nat -D PREROUTING 1			
-			iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $cont2_IP:80
+		until [[ -n "${cont2_IP}" ]] 
+		do
+			echo "Getting cont2 IP"
+			sleep 1
+			cont2_IP=$(lxc-info -n cont2 -iH)
+		done
 			
-			echo "DONE"
+		# iptables
+		# get line number of rule to delete
+		echo "iptables cont2"
+		rule_no=$(iptables -t nat -L --line-number | grep $cont1_IP | cut -d " " -f 1)
+		iptables -t nat -D PREROUTING $rule_no
+		iptables -t nat -A PREROUTING -p tcp --dport 80 -j DNAT --to-destination $cont2_IP:80
+
+		# reload apache
+		echo "Restarting apache"
+		lxc-attach -n cont2 -- systemctl restart apache2
+		
+		echo "You can now check the website"
+			
 	fi
 done	
 
@@ -114,9 +121,25 @@ do
 	if 	[[ $cont2_mem -ge '1000' ]];
 	then
 		check_mem_2='NOT OK'
-			
+		echo "Resizing cont2"			
 		# add memory limits
 		lxc-cgroup -n cont2 memory.limit_in_bytes 2048M
-#lxc-attach -n cont1 -- stress -m 1 --vm-bytes 512M --vm-keep -t 70s
+		echo "Cont2 resized"
+
 	fi
 done	
+
+echo "Cleaning iptables"
+rule_no=$(iptables -t nat -L --line-number | grep $cont2_IP | cut -d " " -f 1)
+iptables -t nat -D PREROUTING $rule_no
+
+echo "Stoppping containers"
+# lxc-stop -n cont1
+lxc-stop -n cont2
+
+
+# How to stress cont1
+# lxc-attach -n cont1 -- stress -m 1 --vm-bytes 512M --vm-keep -t 3s
+
+# How to stress cont2
+# lxc-attach -n cont2 -- stress -m 1 --vm-bytes 1024M --vm-keep -t 3s
