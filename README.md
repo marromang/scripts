@@ -2,7 +2,7 @@
 
 ## HLC:
 - altdisp.sh
-- haLxc.sh
+- haLXC.sh
 
 ## ASO:
 - backups.sh
