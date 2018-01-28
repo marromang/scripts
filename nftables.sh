@@ -16,8 +16,9 @@ echo "Politica por defacto DROP"
 #creacion de la tabla
 nft add table inet filter
 #acceso ssh 
-
-
+nft add rule inet filter input tcp dport 22 accept
+nft add rule inet filter output tcp sport 22 accept
+nft add rule inet filter forward tcp sport 22 accept
 #Politica drop
 nft add chain inet filter input { type filter hook input priority 0 \; policy drop \;}
 nft add chain inet filter output { type filter hook output priority 0 \;  policy drop \;}
@@ -33,21 +34,27 @@ nft add rule nat postrouting ip saddr 192.168.1.0/24 oif eth0 nftrace set 1 masq
 
 echo "Bloqueo de as y marca"
 #as
-nft add rule nat prerouting ip saddr 192.168.1.0/24 ip daddr 91.216.63.241 drop
-nft add rule nat prerouting ip saddr 192.168.1.0/24 ip daddr 193.110.128.109 drop
+nft add rule nat prerouting ip saddr 192.168.10.0/24 ip daddr 91.216.63.240 drop
 #marca
 nft add rule nat prerouting ip saddr 192.168.1.0/24 ip daddr 91.216.63.241 drop
 nft add rule nat prerouting ip saddr 192.168.1.0/24 ip daddr 193.110.128.109 drop
 
-
 echo "Loopback"
-nft add rule inet filter input iif lo protocol icmp accept
+nft add rule inet filter input iif lo accept
 nft add rule inet filter output oif lo accept
 nft add rule inet filter forward oif lo accept
 
 echo "El router podrá realizar conexiones ssh"
+
 echo "El router ofrece un servicio ssh accesible desde el exterior"
+#Estan añadidas en la parte de la politica DROP
+#nft add rule inet filter input tcp dport 22 accept
+#nft add rule inet filter output tcp sport 22 accept
+#nft add rule inet filter forward tcp sport 22 accept
+
 echo "El router podrá ser cliente DNS"
+
+
 echo "El router podrá ser cliente HTTP"
 echo "El router podrá ser cliente HTTPS"
 echo "PC1 ofrece un servidor web accesible por http desde fuera"
@@ -77,4 +84,3 @@ nft add rule ip filter syn-flood drop
 
 echo "Protección contras ataques DoS PIng Flooding"
 nft add rule ip filter forward ip frag-off != 0 ip protocol icmp drop
-
