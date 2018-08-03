@@ -1,5 +1,5 @@
-1. chmod +x to all scripts
-2. php7.2
-3. firefly
-4. Edit apache conf file, config database, add db credentials to .env file
-5. database
+chmod +x to all scripts
+firefly.sh
+Edit apache conf file, config database, add db credentials to .env file
+database.sh
+Start using it!
